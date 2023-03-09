@@ -33,14 +33,19 @@ import org.apache.dubbo.rpc.ProtocolServer;
 import org.apache.dubbo.rpc.model.ApplicationModel;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 import static java.util.Collections.emptyList;
+import static org.apache.dubbo.common.constants.CommonConstants.CORE_THREADS_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.DUBBO_PROTOCOL;
 import static org.apache.dubbo.common.constants.CommonConstants.METADATA_SERVICE_PORT_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.METADATA_SERVICE_PROTOCOL_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.THREADPOOL_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.THREADS_KEY;
+import static org.apache.dubbo.remoting.Constants.BIND_PORT_KEY;
 
 /**
  * Export metadata service
@@ -93,6 +98,10 @@ public class ConfigurableMetadataServiceExporter {
         return applicationModel.getApplicationConfigManager().getApplication().get();
     }
 
+    private ProtocolConfig getProtocolConfig(String protocol) {
+        return applicationModel.getApplicationConfigManager().getProtocol(protocol).get();
+    }
+
     private ProtocolConfig generateMetadataProtocol() {
         // protocol always defaults to dubbo if not specified
         String specifiedProtocol = getSpecifiedProtocol();
@@ -111,10 +120,21 @@ public class ConfigurableMetadataServiceExporter {
                 Protocol protocol = applicationModel.getExtensionLoader(Protocol.class).getExtension(specifiedProtocol);
                 if (protocol != null && protocol.getServers() != null) {
                     Iterator<ProtocolServer> it = protocol.getServers().iterator();
+                    // metadata service may export before normal service export, it.hasNext() will return false.
+                    // so need use specified protocol port.
                     if (it.hasNext()) {
-                        String addr = it.next().getAddress();
-                        String rawPort = addr.substring(addr.indexOf(":") + 1);
+                        ProtocolServer server = it.next();
+                        String rawPort = server.getUrl().getParameter(BIND_PORT_KEY);
+                        if (rawPort == null) {
+                            String addr = server.getAddress();
+                            rawPort = addr.substring(addr.indexOf(":") + 1);
+                        }
                         protocolConfig.setPort(Integer.parseInt(rawPort));
+                    } else {
+                        Integer protocolPort = getProtocolConfig(specifiedProtocol).getPort();
+                        if (null != protocolPort && protocolPort != -1) {
+                            protocolConfig.setPort(protocolPort);
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -178,6 +198,11 @@ public class ConfigurableMetadataServiceExporter {
         serviceConfig.setMethods(generateMethodConfig());
         serviceConfig.setConnections(1); // separate connection
         serviceConfig.setExecutes(100); // max tasks running at the same time
+        Map<String, String> threadParams = new HashMap<>();
+        threadParams.put(THREADPOOL_KEY, "cached");
+        threadParams.put(THREADS_KEY, "100");
+        threadParams.put(CORE_THREADS_KEY, "2");
+        serviceConfig.setParameters(threadParams);
 
         return serviceConfig;
     }

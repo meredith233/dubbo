@@ -40,11 +40,11 @@ public abstract class AbstractCacheManager<V> implements Disposable {
     protected FileCacheStore cacheStore;
     protected LRUCache<String, V> cache;
 
-    protected void init(String filePath, String fileName, int entrySize, long fileSize, int interval, ScheduledExecutorService executorService) {
+    protected void init(boolean enableFileCache, String filePath, String fileName, int entrySize, long fileSize, int interval, ScheduledExecutorService executorService) {
         this.cache = new LRUCache<>(entrySize);
 
         try {
-            cacheStore = FileCacheStoreFactory.getInstance(filePath, fileName);
+            cacheStore = FileCacheStoreFactory.getInstance(filePath, fileName, enableFileCache);
             Map<String, String> properties = cacheStore.loadCache(entrySize);
             logger.info("Successfully loaded mapping cache from file " + fileName + ", entries " + properties.size());
             for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -138,7 +138,7 @@ public abstract class AbstractCacheManager<V> implements Disposable {
             cache.lock();
             try {
                 for (Map.Entry<String, V> entry : cache.entrySet()) {
-                    properties.put(entry.getKey(), JsonUtils.getGson().toJson(entry.getValue()));
+                    properties.put(entry.getKey(), JsonUtils.getJson().toJson(entry.getValue()));
                 }
             } finally {
                 cache.releaseLock();

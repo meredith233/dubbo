@@ -34,7 +34,8 @@ import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Protocol;
 import org.apache.dubbo.rpc.ProxyFactory;
 import org.apache.dubbo.rpc.model.ApplicationModel;
-import org.apache.dubbo.rpc.model.ScopeModel;
+import org.apache.dubbo.rpc.model.ConsumerModel;
+import org.apache.dubbo.rpc.model.ModuleModel;
 import org.apache.dubbo.rpc.model.ServiceDescriptor;
 import org.apache.dubbo.rpc.service.Destroyable;
 
@@ -45,6 +46,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static org.apache.dubbo.common.constants.CommonConstants.CONSUMER_SIDE;
 import static org.apache.dubbo.common.constants.CommonConstants.PROVIDER_SIDE;
+import static org.apache.dubbo.common.constants.CommonConstants.PROXY_CLASS_REF;
 import static org.apache.dubbo.common.constants.CommonConstants.REMOTE_METADATA_STORAGE_TYPE;
 import static org.apache.dubbo.common.constants.RegistryConstants.REGISTRY_CLUSTER_KEY;
 import static org.apache.dubbo.registry.client.metadata.ServiceInstanceMetadataUtils.METADATA_SERVICE_URLS_PROPERTY_NAME;
@@ -56,6 +58,7 @@ public class MetadataUtils {
         if (getMetadataReports(applicationModel).size() == 0) {
             String msg = "Remote Metadata Report Server is not provided or unavailable, will stop registering service definition to remote center!";
             logger.warn(msg);
+            return;
         }
 
         try {
@@ -105,7 +108,7 @@ public class MetadataUtils {
         }
     }
 
-    public static MetadataService referProxy(ServiceInstance instance) {
+    public static ProxyHolder referProxy(ServiceInstance instance) {
         MetadataServiceURLBuilder builder;
         ExtensionLoader<MetadataServiceURLBuilder> loader = instance.getApplicationModel()
             .getExtensionLoader(MetadataServiceURLBuilder.class);
@@ -122,16 +125,32 @@ public class MetadataUtils {
         List<URL> urls = builder.build(instance);
         if (CollectionUtils.isEmpty(urls)) {
             throw new IllegalStateException("Introspection service discovery mode is enabled "
-                    + instance + ", but no metadata service can build from it.");
+                + instance + ", but no metadata service can build from it.");
         }
 
-        // Simply rely on the first metadata url, as stated in MetadataServiceURLBuilder.
-        ScopeModel scopeModel = instance.getApplicationModel();
-        Protocol protocol = scopeModel.getExtensionLoader(Protocol.class).getAdaptiveExtension();
-        Invoker<MetadataService> invoker = protocol.refer(MetadataService.class, urls.get(0));
+        URL url = urls.get(0);
 
-        ProxyFactory proxyFactory = scopeModel.getExtensionLoader(ProxyFactory.class).getAdaptiveExtension();
-        return proxyFactory.getProxy(invoker);
+        // Simply rely on the first metadata url, as stated in MetadataServiceURLBuilder.
+        ApplicationModel applicationModel = instance.getApplicationModel();
+        ModuleModel internalModel = applicationModel.getInternalModule();
+        ConsumerModel consumerModel = applicationModel.getInternalModule().registerInternalConsumer(MetadataService.class, url);
+
+        Protocol protocol = applicationModel.getExtensionLoader(Protocol.class).getAdaptiveExtension();
+
+        url = url.setServiceModel(consumerModel);
+
+        Invoker<MetadataService> invoker = protocol.refer(MetadataService.class, url);
+
+        ProxyFactory proxyFactory = applicationModel.getExtensionLoader(ProxyFactory.class).getAdaptiveExtension();
+
+        MetadataService metadataService = proxyFactory.getProxy(invoker);
+
+        consumerModel.getServiceMetadata().setTarget(metadataService);
+        consumerModel.getServiceMetadata().addAttribute(PROXY_CLASS_REF, metadataService);
+        consumerModel.setProxyObject(metadataService);
+        consumerModel.initMethodModels();
+
+        return new ProxyHolder(consumerModel, metadataService, internalModel);
     }
 
     public static MetadataInfo getRemoteMetadata(String revision, List<ServiceInstance> instances, MetadataReport metadataReport) {
@@ -146,14 +165,12 @@ public class MetadataUtils {
                 metadataInfo = MetadataUtils.getMetadata(revision, instance, metadataReport);
             } else {
                 // change the instance used to communicate to avoid all requests route to the same instance
-                MetadataService metadataServiceProxy = null;
+                ProxyHolder proxyHolder = null;
                 try {
-                    metadataServiceProxy = MetadataUtils.referProxy(instance);
-                    metadataInfo = metadataServiceProxy.getMetadataInfo(ServiceInstanceMetadataUtils.getExportedServicesRevision(instance));
+                    proxyHolder = MetadataUtils.referProxy(instance);
+                    metadataInfo = proxyHolder.getProxy().getMetadataInfo(ServiceInstanceMetadataUtils.getExportedServicesRevision(instance));
                 } finally {
-                    if (metadataServiceProxy instanceof Destroyable) {
-                        ((Destroyable)metadataServiceProxy).$destroy();
-                    }
+                    MetadataUtils.destroyProxy(proxyHolder);
                 }
             }
         } catch (Exception e) {
@@ -165,6 +182,12 @@ public class MetadataUtils {
             metadataInfo = MetadataInfo.EMPTY;
         }
         return metadataInfo;
+    }
+
+    public static void destroyProxy(ProxyHolder proxyHolder) {
+        if (proxyHolder != null) {
+            proxyHolder.destroy();
+        }
     }
 
     public static MetadataInfo getMetadata(String revision, ServiceInstance instance, MetadataReport metadataReport) {
@@ -192,6 +215,37 @@ public class MetadataUtils {
             return instances.get(0);
         }
         return instances.get(ThreadLocalRandom.current().nextInt(0, instances.size()));
+    }
+
+    public static class ProxyHolder {
+        private final ConsumerModel consumerModel;
+        private final MetadataService proxy;
+        private final ModuleModel internalModel;
+
+        public ProxyHolder(ConsumerModel consumerModel, MetadataService proxy, ModuleModel internalModel) {
+            this.consumerModel = consumerModel;
+            this.proxy = proxy;
+            this.internalModel = internalModel;
+        }
+
+        public void destroy() {
+            if (proxy instanceof Destroyable) {
+                ((Destroyable) proxy).$destroy();
+            }
+            internalModel.getServiceRepository().unregisterConsumer(consumerModel);
+        }
+
+        public ConsumerModel getConsumerModel() {
+            return consumerModel;
+        }
+
+        public MetadataService getProxy() {
+            return proxy;
+        }
+
+        public ModuleModel getInternalModel() {
+            return internalModel;
+        }
     }
 
 }

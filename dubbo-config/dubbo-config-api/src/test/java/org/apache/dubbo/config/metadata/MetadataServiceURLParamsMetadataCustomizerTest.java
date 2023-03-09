@@ -17,6 +17,7 @@
 package org.apache.dubbo.config.metadata;
 
 import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.utils.JsonUtils;
 import org.apache.dubbo.config.ApplicationConfig;
 import org.apache.dubbo.config.ProtocolConfig;
 import org.apache.dubbo.config.RegistryConfig;
@@ -25,10 +26,9 @@ import org.apache.dubbo.config.api.DemoService;
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.provider.impl.DemoServiceImpl;
 import org.apache.dubbo.registry.client.DefaultServiceInstance;
+import org.apache.dubbo.registry.client.metadata.ServiceInstanceMetadataUtils;
 import org.apache.dubbo.rpc.model.ApplicationModel;
 
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,10 +48,9 @@ import static org.apache.dubbo.common.constants.CommonConstants.VERSION_KEY;
 import static org.apache.dubbo.registry.client.metadata.ServiceInstanceMetadataUtils.METADATA_SERVICE_URL_PARAMS_PROPERTY_NAME;
 
 public class MetadataServiceURLParamsMetadataCustomizerTest {
-    private static final Gson gson = new Gson();
 
     public DefaultServiceInstance instance;
-    private URL metadataServiceURL = URL.valueOf("dubbo://10.225.12.124:20880/org.apache.dubbo.metadata.MetadataService" +
+    private URL metadataServiceURL = URL.valueOf("dubbo://10.225.12.124:2002/org.apache.dubbo.metadata.MetadataService" +
         "?application=MetadataServiceURLParamsMetadataCustomizerTest&group=MetadataServiceURLParamsMetadataCustomizerTest" +
         "&interface=org.apache.dubbo.metadata.MetadataService&side=provider&timestamp=1637573430740&version=1.0.0");
 
@@ -97,8 +96,7 @@ public class MetadataServiceURLParamsMetadataCustomizerTest {
         String val = instance.getMetadata().get(METADATA_SERVICE_URL_PARAMS_PROPERTY_NAME);
         Assertions.assertNotNull(val);
 
-        Map<String, String> map = gson.fromJson(val, new TypeToken<Map<String, String>>() {
-        }.getType());
+        Map<String, String> map = JsonUtils.getJson().toJavaObject(val, Map.class);
         Assertions.assertEquals(map.get(PORT_KEY), String.valueOf(metadataServiceURL.getPort()));
         Assertions.assertEquals(map.get(PROTOCOL_KEY), metadataServiceURL.getProtocol());
         Assertions.assertEquals(map.get(VERSION_KEY), metadataServiceURL.getVersion());

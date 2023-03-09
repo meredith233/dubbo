@@ -116,7 +116,7 @@ public class CallbackServiceCodec {
         params.put(IS_SERVER_KEY, Boolean.FALSE.toString());
         // mark it's a callback, for troubleshooting
         params.put(IS_CALLBACK_SERVICE, Boolean.TRUE.toString());
-        String group = (inv == null ? null : (String) inv.getObjectAttachment(GROUP_KEY));
+        String group = (inv == null ? null : (String) inv.getObjectAttachmentWithoutConvert(GROUP_KEY));
         if (group != null && group.length() > 0) {
             params.put(GROUP_KEY, group);
         }
@@ -158,7 +158,7 @@ public class CallbackServiceCodec {
                     ServiceDescriptor serviceDescriptor = moduleModel.getServiceRepository().registerService(clazz);
                     ServiceMetadata serviceMetadata = new ServiceMetadata(clazz.getName() + "." + instid, exportUrl.getGroup(), exportUrl.getVersion(), clazz);
                     String serviceKey = BaseServiceMetadata.buildServiceKey(exportUrl.getPath(), group, exportUrl.getVersion());
-                    ProviderModel providerModel = new ProviderModel(serviceKey, inst, serviceDescriptor, null, moduleModel, serviceMetadata);
+                    ProviderModel providerModel = new ProviderModel(serviceKey, inst, serviceDescriptor, moduleModel, serviceMetadata, ClassUtils.getClassLoader(clazz));
                     moduleModel.getServiceRepository().registerProvider(providerModel);
 
                     exportUrl = exportUrl.setScopeModel(moduleModel);
